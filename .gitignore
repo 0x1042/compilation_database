@@ -1,0 +1,7 @@
+bazel-bin
+bazel-compilation_database
+bazel-out
+bazel-testlogs
+external
+.idea
+.vscode

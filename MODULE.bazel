@@ -1,0 +1,12 @@
+"""
+expose compile_commands.json for bazel project
+"""
+
+module(
+    name = "compilation_database",
+    version = "0.1.0",
+)
+
+bazel_dep(name = "rules_go", version = "0.57.0")
+go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
+# go_sdk.host()

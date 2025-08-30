@@ -1,0 +1,26 @@
+name: build
+
+on:
+  push:
+    tags:
+      - "v*"
+  pull_request:
+    branches: ["master"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - uses: bazel-contrib/setup-bazel@0.15.0
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.workflow }}
+          repository-cache: true
+
+      - name: build
+        run: |
+          bazel build --config=opt //:compile_commands
