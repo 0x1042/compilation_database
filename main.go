@@ -6,16 +6,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 )
 
-var (
-	target string
-)
+var target string
 
 func init() {
 	flag.StringVar(&target, "target", "//...", "target")
@@ -47,7 +44,7 @@ func SymlinkExternalToWorkspaceRoot() error {
 			return fmt.Errorf("unable to resolve external directory symlink: %w", err)
 		}
 		if dest != currentDest {
-			log.Printf("//external links to the wrong place. Automatically deleting and relinking...")
+			fmt.Printf("//external links to the wrong place. Automatically deleting and relinking...")
 			if err := os.Remove(src); err != nil {
 				return fmt.Errorf("unable to cleanup invalid external symlink: %w", err)
 			}
@@ -170,7 +167,7 @@ func (g *CompileCommandGenerator) ConvertCompileCommands(output AqueryOutput) ([
 	// Ignore tools (which lead to duplicates) - we only need to
 	// generate entries for code that we build as part of Redpanda or
 	// it's tests.
-	isToolConfig := map[int]bool{}
+	isToolConfig := make(map[int]bool, len(output.Configuration))
 	for _, config := range output.Configuration {
 		isToolConfig[config.ID] = config.IsTool
 	}
@@ -200,7 +197,7 @@ func (g *CompileCommandGenerator) ConvertCompileCommands(output AqueryOutput) ([
 func GetCommands(extraArgs ...string) ([]CompileCommand, error) {
 	var scope string
 	if target == "//..." {
-		scope = fmt.Sprintf("mnemonic('CppCompile', //...)")
+		scope = "mnemonic('CppCompile', //...)"
 	} else {
 		scope = fmt.Sprintf("mnemonic('CppCompile', deps(%s))", target)
 	}
@@ -252,7 +249,6 @@ func GetCommands(extraArgs ...string) ([]CompileCommand, error) {
 		"--features=-parse_headers",
 		"--host_features=-parse_headers",
 	)
-	log.Printf("cmd is %s", cmd.String())
 	// cmd.Args = append(cmd.Args, extraArgs...)
 	cmd.Stderr = os.Stderr
 	stdoutPipe, err := cmd.StdoutPipe()
@@ -302,7 +298,7 @@ func run(args []string) error {
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
-		log.Printf("unable to generate compilation database %+v", err)
+		fmt.Printf("unable to generate compilation database %+v", err)
 		os.Exit(1)
 	}
 }
