@@ -249,8 +249,20 @@ func GetCommands(extraArgs ...string) ([]CompileCommand, error) {
 		"--features=-parse_headers",
 		"--host_features=-parse_headers",
 	)
-	// cmd.Args = append(cmd.Args, extraArgs...)
+
+	var filterArgs []string
+	tag := fmt.Sprintf("--target=%s", target)
+	for _, arg := range extraArgs {
+		if arg != tag {
+			filterArgs = append(filterArgs, arg)
+		}
+	}
+
+	cmd.Args = append(cmd.Args, filterArgs...)
 	cmd.Stderr = os.Stderr
+
+	fmt.Printf("\n%s\n", cmd.String())
+	
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("unable to connect to `bazel aquery` stdout: %w", err)
