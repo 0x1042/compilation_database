@@ -8,12 +8,12 @@ copy from https://github.com/redpanda-data/redpanda
 
 ```starlark
 
-bazel_dep(name = "compilation_database", version = "0.1.0")
+bazel_dep(name = "compilation_database", version = "0.1.3")
 
 git_override(
     module_name = "compilation_database",
     remote = "https://github.com/0x1042/compilation_database.git",
-    tag = "v0.1.0",
+    commit = "3dd2a166ac92ff3c654641dc82dabe3a390cac6d",
 )
 ```
 
