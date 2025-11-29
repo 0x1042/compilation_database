@@ -116,7 +116,7 @@ func (g *CompileCommandGenerator) RemapCompilerPath(path string) (mapped string,
 	_, file := filepath.Split(path)
 	if file != "cc_wrapper.sh" {
 		mapped = path
-		return
+		return mapped, err
 	}
 	if cxx := os.Getenv("CXX"); len(cxx) > 0 {
 		mapped = cxx
@@ -125,21 +125,34 @@ func (g *CompileCommandGenerator) RemapCompilerPath(path string) (mapped string,
 	} else {
 		mapped = path
 	}
-	return
+	return mapped, err
+}
+
+const (
+	stdver20 = "-std=c++20"
+)
+
+var pinversion = map[string]string{
+	"-std=c++17": stdver20,
+	"-std=c++14": stdver20,
+	"-std=c++11": stdver20,
 }
 
 func (g *CompileCommandGenerator) GetCppCommandForFiles(action AqueryAction) (src string, args []string, err error) {
 	if len(action.Arguments) == 0 {
 		err = errors.New("empty arguments for compiler action")
-		return
+		return src, args, err
 	}
 	args = make([]string, 0, len(action.Arguments)+2)
 	// TODO(bazel): We might need to preprocess the compiler location if it's a llvm_toolchain one
 	// because in the current form, the compiler headers are in the wrong place.
 	compilerPath, err := g.RemapCompilerPath(action.Arguments[0])
 	if err != nil {
-		return
+		return src, args, err
 	}
+
+	dedup := make(map[string]struct{}, len(action.Arguments)+2)
+
 	args = append(args, compilerPath)
 	for i, curr := range action.Arguments[1:] {
 		prev := action.Arguments[i]
@@ -149,13 +162,25 @@ func (g *CompileCommandGenerator) GetCppCommandForFiles(action AqueryAction) (sr
 		if prev == "-c" {
 			src = curr
 		}
+
+		if newVer, has := pinversion[curr]; has {
+			curr = newVer
+		}
+
+		if strings.HasPrefix(curr, "-W") || strings.HasPrefix(curr, "-std=") {
+			if _, has := dedup[curr]; has {
+				continue
+			}
+		}
+
 		args = append(args, curr)
+		dedup[curr] = struct{}{}
 	}
 	if src == "" {
 		err = fmt.Errorf("unable to find source .cc file for targetId %d", action.TargetID)
-		return
+		return src, args, err
 	}
-	return
+	return src, args, err
 }
 
 // ConvertCompileCommands converts from Bazel's aquery format to de-Bazeled compile_commands.json entries.
@@ -262,7 +287,7 @@ func GetCommands(extraArgs ...string) ([]CompileCommand, error) {
 	cmd.Stderr = os.Stderr
 
 	fmt.Printf("\n%s\n", cmd.String())
-	
+
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("unable to connect to `bazel aquery` stdout: %w", err)
