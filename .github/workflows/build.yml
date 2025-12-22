@@ -23,4 +23,5 @@ jobs:
 
       - name: build
         run: |
-          bazel build --config=opt //:compile_commands
+          bazel build --config=opt //:compilation_database
+          bazel build --config=opt //:compilation_database_v2

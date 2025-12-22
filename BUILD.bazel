@@ -1,19 +1,46 @@
+load("@gazelle//:def.bzl", "gazelle")
 load("@rules_go//go:def.bzl", "go_binary", "go_library")
 
+gazelle(name = "gazelle")
+
 go_library(
-    name = "compile_commands_lib",
-    srcs = ["main.go"],
-    importpath = "github.com/0x1042/compilation_database",
-    visibility = ["//visibility:public"],
+    name = "libv1",
+    srcs = [
+        "common.go",
+        "v1.go",
+    ],
+    importpath = "compilation_database",
+    visibility = ["//visibility:private"],
+)
+
+go_library(
+    name = "libv2",
+    srcs = [
+        "common.go",
+        "v2.go",
+    ],
+    importpath = "compilation_database",
+    visibility = ["//visibility:private"],
 )
 
 go_binary(
-    name = "compile_commands",
-    cgo = False,
-    embed = [":compile_commands_lib"],
+    name = "compilation_database",
+    embed = [":libv1"],
     gc_linkopts = [
         "-w",
         "-s",
     ],
+    pure = "on",
+    visibility = ["//visibility:public"],
+)
+
+go_binary(
+    name = "compilation_database_v2",
+    embed = [":libv2"],
+    gc_linkopts = [
+        "-w",
+        "-s",
+    ],
+    pure = "on",
     visibility = ["//visibility:public"],
 )

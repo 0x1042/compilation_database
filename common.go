@@ -8,8 +8,66 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"strings"
+)
+
+const (
+	stdver = "-std=c++23"
+	dst    = "compile_commands.json"
+	cpp    = "cc_wrapper.sh"
+)
+
+var pinversion = map[string]string{
+	"-std=c++17": stdver,
+	"-std=c++14": stdver,
+	"-std=c++11": stdver,
+}
+
+type (
+	Target struct {
+		Directory string `json:"directory"`
+		Command   string `json:"command"`
+		File      string `json:"file"`
+		Output    string `json:"output"`
+	}
+
+	Targets []Target
+
+	KeyValue struct {
+		Key   string `json:"key"`
+		Value string `json:"value"`
+	}
+
+	AqueryAction struct {
+		TargetID        int        `json:"targetId"`
+		ConfigurationID int        `json:"configurationId"`
+		Arguments       []string   `json:"arguments"`
+		Environment     []KeyValue `json:"environmentVariables"`
+	}
+
+	AqueryTarget struct {
+		ID    int    `json:"id"`
+		Label string `json:"label"`
+	}
+
+	AqueryConfiguration struct {
+		ID           int    `json:"id"`
+		Mnemonic     string `json:"mnemenic"`
+		PlatformName string `json:"platformName"`
+		IsTool       bool   `json:"isTool,omitempty"`
+	}
+
+	AqueryOutput struct {
+		Actions       []AqueryAction        `json:"actions"`
+		Targets       []AqueryTarget        `json:"targets"`
+		Configuration []AqueryConfiguration `json:"configuration"`
+	}
+
+	CompileCommand struct {
+		File      string   `json:"file"`
+		Arguments []string `json:"arguments"`
+		// Bazel gotcha warning: If you were tempted to use `bazel info execution_root` as the build working directory for compile_commands...search ImplementationReadme.md in the Hedron repo to learn why that breaks.
+		Directory string `json:"directory"`
+	}
 )
 
 var target string
@@ -61,166 +119,11 @@ func SymlinkExternalToWorkspaceRoot() error {
 	return nil
 }
 
-type (
-	KeyValue struct {
-		Key   string `json:"key"`
-		Value string `json:"value"`
-	}
-	AqueryAction struct {
-		TargetID        int        `json:"targetId"`
-		ConfigurationID int        `json:"configurationId"`
-		Arguments       []string   `json:"arguments"`
-		Environment     []KeyValue `json:"environmentVariables"`
-	}
-	AqueryTarget struct {
-		ID    int    `json:"id"`
-		Label string `json:"label"`
-	}
-	AqueryConfiguration struct {
-		ID           int    `json:"id"`
-		Mnemonic     string `json:"mnemenic"`
-		PlatformName string `json:"platformName"`
-		IsTool       bool   `json:"isTool,omitempty"`
-	}
-	AqueryOutput struct {
-		Actions       []AqueryAction        `json:"actions"`
-		Targets       []AqueryTarget        `json:"targets"`
-		Configuration []AqueryConfiguration `json:"configuration"`
-	}
-)
-
-// CompileCommand is a single entry in the compile_commands.json file.
-// Docs about compile_commands.json format: https://clang.llvm.org/docs/JSONCompilationDatabase.html#format
-type CompileCommand struct {
-	File      string   `json:"file"`
-	Arguments []string `json:"arguments"`
-	// Bazel gotcha warning: If you were tempted to use `bazel info execution_root` as the build working directory for compile_commands...search ImplementationReadme.md in the Hedron repo to learn why that breaks.
-	Directory string `json:"directory"`
-}
-
-type CompileCommandGenerator struct {
-	compilerPathCache map[string]string
-}
-
-func (g *CompileCommandGenerator) RemapCompilerPath(path string) (mapped string, err error) {
-	if mapped, ok := g.compilerPathCache[path]; ok {
-		return mapped, nil
-	}
-	// Cache a successful result
-	defer func() {
-		if err == nil {
-			g.compilerPathCache[path] = mapped
-		}
-	}()
-	// dir, file := filepath.Split(path)
-	_, file := filepath.Split(path)
-	if file != "cc_wrapper.sh" {
-		mapped = path
-		return mapped, err
-	}
-	if cxx := os.Getenv("CXX"); len(cxx) > 0 {
-		mapped = cxx
-	} else if cxx := os.Getenv("cxx"); len(cxx) > 0 {
-		mapped = cxx
-	} else {
-		mapped = path
-	}
-	return mapped, err
-}
-
-const (
-	stdver20 = "-std=c++20"
-)
-
-var pinversion = map[string]string{
-	"-std=c++17": stdver20,
-	"-std=c++14": stdver20,
-	"-std=c++11": stdver20,
-}
-
-func (g *CompileCommandGenerator) GetCppCommandForFiles(action AqueryAction) (src string, args []string, err error) {
-	if len(action.Arguments) == 0 {
-		err = errors.New("empty arguments for compiler action")
-		return src, args, err
-	}
-	args = make([]string, 0, len(action.Arguments)+2)
-	// TODO(bazel): We might need to preprocess the compiler location if it's a llvm_toolchain one
-	// because in the current form, the compiler headers are in the wrong place.
-	compilerPath, err := g.RemapCompilerPath(action.Arguments[0])
-	if err != nil {
-		return src, args, err
-	}
-
-	dedup := make(map[string]struct{}, len(action.Arguments)+2)
-
-	args = append(args, compilerPath)
-	for i, curr := range action.Arguments[1:] {
-		prev := action.Arguments[i]
-		if strings.HasPrefix(curr, "-fdebug-prefix-map") {
-			continue
-		}
-		if prev == "-c" {
-			src = curr
-		}
-
-		if newVer, has := pinversion[curr]; has {
-			curr = newVer
-		}
-
-		if strings.HasPrefix(curr, "-W") || strings.HasPrefix(curr, "-std=") {
-			if _, has := dedup[curr]; has {
-				continue
-			}
-		}
-
-		args = append(args, curr)
-		dedup[curr] = struct{}{}
-	}
-	if src == "" {
-		err = fmt.Errorf("unable to find source .cc file for targetId %d", action.TargetID)
-		return src, args, err
-	}
-	return src, args, err
-}
-
-// ConvertCompileCommands converts from Bazel's aquery format to de-Bazeled compile_commands.json entries.
-func (g *CompileCommandGenerator) ConvertCompileCommands(output AqueryOutput) ([]CompileCommand, error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, fmt.Errorf("unable to get cwd: %w", err)
-	}
-	// Ignore tools (which lead to duplicates) - we only need to
-	// generate entries for code that we build as part of Redpanda or
-	// it's tests.
-	isToolConfig := make(map[int]bool, len(output.Configuration))
-	for _, config := range output.Configuration {
-		isToolConfig[config.ID] = config.IsTool
-	}
-	cmds := make([]CompileCommand, 0, len(output.Actions))
-	for _, action := range output.Actions {
-		if isToolConfig[action.ConfigurationID] {
-			continue
-		}
-		src, args, err := g.GetCppCommandForFiles(action)
-		if err != nil {
-			return nil, fmt.Errorf("unable to get cpp command: %w", err)
-		}
-		// Skip Bazel internal files
-		if strings.HasPrefix(src, "external/bazel_tools/") {
-			continue
-		}
-		cmds = append(cmds, CompileCommand{
-			File:      src,
-			Arguments: args,
-			Directory: cwd,
-		})
-	}
-	return cmds, nil
-}
-
 // GetCommands yields compile_commands.json entries
-func GetCommands(extraArgs ...string) ([]CompileCommand, error) {
+func GetCommands(extraArgs ...string) (AqueryOutput, error) {
 	var scope string
+	var output AqueryOutput
+
 	if target == "//..." {
 		scope = "mnemonic('CppCompile', //...)"
 	} else {
@@ -290,52 +193,34 @@ func GetCommands(extraArgs ...string) ([]CompileCommand, error) {
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, fmt.Errorf("unable to connect to `bazel aquery` stdout: %w", err)
+		return output, fmt.Errorf("unable to connect to `bazel aquery` stdout: %w", err)
 	}
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("unable to run `bazel aquery`: %w", err)
+		return output, fmt.Errorf("unable to run `bazel aquery`: %w", err)
 	}
 	stdout, stdoutErr := io.ReadAll(stdoutPipe)
 	if err := cmd.Wait(); err != nil {
-		return nil, fmt.Errorf("unable to run `bazel aquery`: %w", err)
+		return output, fmt.Errorf("unable to run `bazel aquery`: %w", err)
 	}
 	if stdoutErr != nil {
-		return nil, fmt.Errorf("unable to get `bazel aquery` stdout: %w", stdoutErr)
+		return output, fmt.Errorf("unable to get `bazel aquery` stdout: %w", stdoutErr)
 	}
-	var output AqueryOutput
+
 	if err := json.Unmarshal(stdout, &output); err != nil {
-		return nil, fmt.Errorf("unable to parse `bazel aquery` stdout: %w", err)
+		return output, fmt.Errorf("unable to parse `bazel aquery` stdout: %w", err)
 	}
+
 	if len(output.Actions) == 0 {
-		return nil, errors.New("unable to find any actions from `bazel aquery`, likely there are BUILD file errors")
+		return output, errors.New("unable to find any actions from `bazel aquery`, likely there are BUILD file errors")
 	}
-	generator := CompileCommandGenerator{
-		compilerPathCache: map[string]string{},
-	}
-	return generator.ConvertCompileCommands(output)
+
+	return output, nil
 }
 
-func run(args []string) error {
-	if err := SwitchCWDToWorkspaceRoot(); err != nil {
-		return err
-	}
-	if err := SymlinkExternalToWorkspaceRoot(); err != nil {
-		return err
-	}
-	cmds, err := GetCommands(args...)
+func Sink(out any) error {
+	buf, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
 		return err
 	}
-	buf, err := json.MarshalIndent(cmds, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile("compile_commands.json", buf, 0o664)
-}
-
-func main() {
-	if err := run(os.Args[1:]); err != nil {
-		fmt.Printf("unable to generate compilation database %+v", err)
-		os.Exit(1)
-	}
+	return os.WriteFile(dst, buf, 0o664)
 }
