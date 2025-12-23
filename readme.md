@@ -22,7 +22,7 @@ git_override(
 ```starlark
 alias(
     name = "cc_gen",
-    actual = "@compilation_database//:compile_commands",
+    actual = "@compilation_database//:compilation_database_v2",
 )
 ```
 
