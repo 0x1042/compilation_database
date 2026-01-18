@@ -8,6 +8,10 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"time"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 const (
@@ -75,6 +79,11 @@ var target string
 func init() {
 	flag.StringVar(&target, "target", "//...", "target")
 	flag.Parse()
+
+	log.Logger = log.Output(zerolog.ConsoleWriter{
+		Out:        os.Stderr,
+		TimeFormat: time.StampMilli,
+	})
 }
 
 // SwitchCWDToWorkspaceRoot switches CWD to the Bazel workspace root
@@ -178,7 +187,7 @@ func GetCommands(extraArgs ...string) (AqueryOutput, error) {
 		"--host_features=-parse_headers",
 	)
 
-	var filterArgs []string
+	filterArgs := make([]string, 0, len(extraArgs))
 	tag := fmt.Sprintf("--target=%s", target)
 	for _, arg := range extraArgs {
 		if arg != tag {
@@ -189,7 +198,7 @@ func GetCommands(extraArgs ...string) (AqueryOutput, error) {
 	cmd.Args = append(cmd.Args, filterArgs...)
 	cmd.Stderr = os.Stderr
 
-	fmt.Printf("\n%s\n", cmd.String())
+	log.Info().Str("query command", cmd.String()).Send()
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
