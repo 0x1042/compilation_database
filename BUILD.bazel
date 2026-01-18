@@ -11,6 +11,10 @@ go_library(
     ],
     importpath = "compilation_database",
     visibility = ["//visibility:private"],
+    deps = [
+        "@com_github_rs_zerolog//:zerolog",
+        "@com_github_rs_zerolog//log",
+    ],
 )
 
 go_library(
@@ -21,6 +25,10 @@ go_library(
     ],
     importpath = "compilation_database",
     visibility = ["//visibility:private"],
+    deps = [
+        "@com_github_rs_zerolog//:zerolog",
+        "@com_github_rs_zerolog//log",
+    ],
 )
 
 go_binary(

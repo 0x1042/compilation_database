@@ -1,10 +1,12 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 var (
@@ -41,25 +43,25 @@ func convert(dir, arg string) string {
 func translate(dir string, aquery AqueryOutput) (Targets, error) {
 	ts := make(Targets, 0, len(aquery.Actions))
 	for _, action := range aquery.Actions {
-
-		var pre string
 		var t Target
-
 		realArgs := make([]string, 0, len(action.Arguments))
+		if strings.HasSuffix(action.Arguments[0], cpp) {
+			if cxx := os.Getenv("CXX"); len(cxx) > 0 {
+				realArgs = append(realArgs, cxx)
+			} else {
+				realArgs = append(realArgs, action.Arguments[0])
+			}
+		}
+
 		dedup := make(map[string]struct{}, len(action.Arguments)+2)
 
-		for _, args := range action.Arguments {
+		for i, args := range action.Arguments[1:] {
+			pre := action.Arguments[i]
 			if strings.HasPrefix(args, "-fdebug-prefix-map") {
 				continue
 			}
 
 			ph := args
-
-			if strings.HasSuffix(args, cpp) {
-				if cxx := os.Getenv("CXX"); len(cxx) > 0 {
-					ph = cxx
-				}
-			}
 
 			if pre == "-c" {
 				t.File = filepath.Join(dir, args)
@@ -80,8 +82,6 @@ func translate(dir string, aquery AqueryOutput) (Targets, error) {
 			if newVer, has := pinversion[ph]; has {
 				ph = newVer
 			}
-
-			pre = args
 
 			if strings.HasPrefix(ph, "-W") || strings.HasPrefix(ph, "-std=") {
 				if _, has := dedup[ph]; has {
@@ -117,7 +117,7 @@ func runv2(args []string) error {
 
 	dir, _ := os.LookupEnv("BUILD_WORKSPACE_DIRECTORY")
 
-	fmt.Printf("BUILD_WORKSPACE_DIRECTORY %s", dir)
+	log.Info().Str("BUILD_WORKSPACE_DIRECTORY", dir).Send()
 
 	output, err := GetCommands(args...)
 	if err != nil {
@@ -133,8 +133,13 @@ func runv2(args []string) error {
 }
 
 func main() {
+	now := time.Now()
+	defer func(start time.Time) {
+		log.Info().Dur("cost", time.Since(start)).Msg("generate compile database")
+	}(now)
+
 	if err := runv2(os.Args[1:]); err != nil {
-		fmt.Printf("unable to generate compilation database %+v", err)
+		log.Error().Err(err).Msg("unable to generate compilation database")
 		os.Exit(1)
 	}
 }
